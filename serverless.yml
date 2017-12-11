@@ -1,0 +1,32 @@
+service: serverless-dynamodb-backups
+
+custom:
+  tableName: "SET-MY-TABLE-NAME"
+  backupRate: rate(10 minutes)
+  slackWebhook: ""
+
+provider:
+  name: aws
+  runtime: python3.6
+  region: us-west-2
+  timeout: 30
+  iamRoleStatements:
+    - Effect: "Allow"
+      Action:
+        - "dynamodb:CreateBackup"
+      Resource:
+        Fn::Join:
+          - ":"
+          - - "arn:aws:dynamodb"
+            - Ref: 'AWS::Region'
+            - Ref: 'AWS::AccountId'
+            - "table/${self:custom.tableName}"
+  environment:
+    TABLE_NAME: ${self:custom.tableName}
+    SLACK_WEBHOOK: ${self:custom.slackWebhook}
+
+functions:
+  createBackup:
+    handler: handler.create_backup
+    events:
+      - schedule: ${self:custom.backupRate}
