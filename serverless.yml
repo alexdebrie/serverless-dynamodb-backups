@@ -3,13 +3,15 @@ service: serverless-dynamodb-backups
 custom:
   tableName: "SET-MY-TABLE-NAME"
   backupRate: rate(10 minutes)
+  awsRegion: "CHANGE-ME"
   slackWebhook: ""
 
 provider:
   name: aws
   runtime: python3.6
-  region: us-west-2
+  region: ${self:custom.awsRegion}
   timeout: 30
+  memorySize: 128
   iamRoleStatements:
     - Effect: "Allow"
       Action:
