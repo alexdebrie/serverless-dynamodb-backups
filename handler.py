@@ -1,5 +1,7 @@
 import datetime
+import json
 import os
+import re
 
 # To get updated botocore data files
 os.environ['AWS_DATA_PATH'] = '.'
@@ -10,48 +12,61 @@ from botocore.exceptions import ClientError
 from botocore.vendored import requests
 
 CLIENT = boto3.client('dynamodb')
-TABLE_NAME = os.environ['TABLE_NAME']
 SLACK_WEBHOOK = os.environ.get('SLACK_WEBHOOK')
 REGION = os.environ.get('AWS_DEFAULT_REGION')
 CONSOLE_ENDPOINT = 'https://console.aws.amazon.com/dynamodb/home?region={region}#backups:'.format(region=REGION)
 
 
-def create_backup(event, context):
-    timestamp = datetime.datetime.now().strftime('%Y%m%d%H%M%S')
-    backup_name = TABLE_NAME + "_" + timestamp
-    try:
-        resp = CLIENT.create_backup(
-            TableName=TABLE_NAME,
-            BackupName=backup_name
-        )
-        message = "\n".join([
-            "Created backup for table {table}".format(table=TABLE_NAME),
-            "Check your backups <{endpoint}|here>".format(endpoint=CONSOLE_ENDPOINT)
-        ])
-    except ClientError as e:
-        # Error when trying to a backup a table without backups allowed
-        if e.response['Error']['Code'] == 'ContinuousBackupsUnavailableException':
-            message = "\n".join([
-                "*WARNING:* Could not create backup for table {table}".format(table=TABLE_NAME),
-                "AWS has not enabled backups for this table. This is not a transient error."
-            ])
-        # This error was showing up when I used a colon in my backup name. Not very descriptive.
-        elif e.response['Error']['Code'] == 'InternalServerError':
-            message = "\n".join([
-                "*WARNING:* Could not create backup for table {table}".format(table=TABLE_NAME),
-                "Error: InternalServerError. This could mean an invalid character in your backup name."
-            ])
-        else:
-            message = "\n".join([
-                "*WARNING:* Could not create backup for table {table}".format(table=TABLE_NAME),
-                "Error: {msg}".format(msg=e)
-            ])
-    except Exception as e:
-        message = "\n".join([
-            "*WARNING:* Could not create backup for table {table}".format(table=TABLE_NAME),
-            "Error: {msg}".format(msg=str(e))
-        ])
+def main(event, context):
+    tables = get_tables_to_backup()
+    results = {
+        "success": [],
+        "failure": []
+    }
+
+    for table in tables:
+        try:
+            create_backup(table)
+            results['success'].append(table)
+        except Exception as e:
+            print("Error creating backup for table {table}.\n. Error: {err}".format(table=table, err=str(e)))
+            results['failure'].append(table)
+
+    message = format_message(results)
     send_to_slack(message)
+
+
+def create_backup(table):
+    timestamp = datetime.datetime.now().strftime('%Y%m%d%H%M%S')
+    backup_name = table + "_" + timestamp
+    CLIENT.create_backup(
+        TableName=table,
+        BackupName=backup_name
+    )
+
+
+def format_message(results):
+    msg = ""
+
+    if not results['success'] and not results['failure']:
+        return "Tried running DynamoDB backup, but no tables were specified.\nPlease check your configuration."
+
+    msg += "Tried to backup {total} DynamoDB tables. {successes} succeeded, and {failures} failed. See all backups <{url}|here>.".format(
+        total=(len(results['success']) + len(results['failure'])),
+        successes=len(results['success']),
+        failures=len(results['failure']),
+        url=CONSOLE_ENDPOINT.format(region=REGION)
+    )
+
+    if results['success']:
+        msg += "\nThe following tables were successful:\n - "
+        msg += "\n - ".join(results['success'])
+
+    if results['failure']:
+        msg += "\nThe following tables failed:\n - "
+        msg += "\n - ".join(results['failure'])
+
+    return msg
 
 
 def send_to_slack(message):
@@ -64,5 +79,54 @@ def send_to_slack(message):
     resp.raise_for_status()
 
 
+def get_tables_to_backup():
+    """Determines which tables to backup. The determination is made based on
+    the config options. Return value is a list.
+
+    Order is as follows:
+
+    1. If the TABLE_REGEX environment variable is set, call the `ListTables` API
+    for DynamoDB and return tables that match the given TABLE_REGEX;
+
+    2. If the TABLE_FILE environment variable is set, load the TABLE_FILE and
+    return the tables list.
+
+    3. If the TABLE_NAME environment variable is set, return the TABLE_NAME.
+
+    It will not combine multiple options. It will return the value(s) from the first
+    option with the environment variable present.
+    """
+    if os.environ.get('TABLE_REGEX'):
+        return get_tables_regex(os.environ.get('TABLE_REGEX'))
+    elif os.environ.get('TABLE_FILE'):
+        return get_tables_from_file(os.environ.get('TABLE_FILE'))
+    elif os.environ.get('TABLE_NAME'):
+        return [os.environ.get('TABLE_NAME')]
+
+    print("No tables configured. Please use TABLE_REGEX, TABLE_FILE, OR TABLE_NAME environment variables.")
+
+    return []
+
+
+def get_tables_regex(pattern):
+    print("Using regex pattern {} to find tables.".format(pattern))
+    tables = []
+    paginator = CLIENT.get_paginator('list_tables')
+    for page in paginator.paginate():
+        for table in page['TableNames']:
+            if re.match(pattern, table):
+                tables.append(table)
+
+    return tables
+
+
+def get_tables_from_file(filename):
+    print("Using local file {} to find tables.".format(filename))
+    with open(filename, 'r') as f:
+        tables = json.load(f)
+
+    return tables
+
+
 if __name__ == "__main__":
-    create_backup('', '')
+    main('', '')
