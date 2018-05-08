@@ -46,3 +46,4 @@ In addition to the table configuration, there is also the following configuratio
 
 - **Better control on notifications?** We could implement email or SMS messages, as well as the ability to only notify on failures.
 - **Cleanup of old backups?** It could be nice to delete all backups older than X days to avoid being charged for backup storage.
+ 
