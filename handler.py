@@ -1,4 +1,4 @@
-import datetime
+from datetime import datetime, timedelta
 import json
 import os
 import re
@@ -32,17 +32,35 @@ def main(event, context):
             print("Error creating backup for table {table}.\n. Error: {err}".format(table=table, err=str(e)))
             results['failure'].append(table)
 
+    try:
+        remove_stale_backups(tables)
+    except Exception as e:
+        print("Error removing stale backups. Error: {err}".format(err=str(e)))
+
     message = format_message(results)
     send_to_slack(message)
 
 
 def create_backup(table):
-    timestamp = datetime.datetime.now().strftime('%Y%m%d%H%M%S')
+    timestamp = datetime.now().strftime('%Y%m%d%H%M%S')
     backup_name = table + "_" + timestamp
     CLIENT.create_backup(
         TableName=table,
         BackupName=backup_name
     )
+
+def remove_stale_backups(tables):
+    paginator = CLIENT.get_paginator('list_backups')
+    upper_bound = datetime.now() - timedelta(days=int(os.environ.get('BACKUP_RETENTION_DAYS')))
+
+    print("Removing backups before the following date: {date}".format(date=upper_bound))
+
+    for page in paginator.paginate(TimeRangeUpperBound=upper_bound):
+        for table in page['BackupSummaries']:
+            if table['TableName'] in tables:
+                CLIENT.delete_backup(
+                    BackupArn=table['BackupArn']
+                )
 
 
 def format_message(results):
