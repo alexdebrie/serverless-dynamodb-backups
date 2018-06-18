@@ -32,10 +32,11 @@ def main(event, context):
             print("Error creating backup for table {table}.\n. Error: {err}".format(table=table, err=str(e)))
             results['failure'].append(table)
 
-    try:
-        remove_stale_backups(tables)
-    except Exception as e:
-        print("Error removing stale backups. Error: {err}".format(err=str(e)))
+    if os.environ.get('BACKUP_REMOVAL_ENABLED') == 'true':
+        try:
+            remove_stale_backups(tables)
+        except Exception as e:
+            print("Error removing stale backups. Error: {err}".format(err=str(e)))
 
     message = format_message(results)
     send_to_slack(message)
@@ -58,9 +59,7 @@ def remove_stale_backups(tables):
     for page in paginator.paginate(TimeRangeUpperBound=upper_bound):
         for table in page['BackupSummaries']:
             if table['TableName'] in tables:
-                CLIENT.delete_backup(
-                    BackupArn=table['BackupArn']
-                )
+                CLIENT.delete_backup(BackupArn=table['BackupArn'])
 
 
 def format_message(results):
