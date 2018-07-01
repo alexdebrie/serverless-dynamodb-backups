@@ -5,6 +5,8 @@ custom:
   tableFile: "" # Set if you want to read table names from a file.
   tableName: "" # Set if you want to backup a single table
   backupRate: rate(10 minutes)
+  backupRetentionDays: 1
+  backupRemovalEnabled: true
   slackWebhook: ""
 
 provider:
@@ -28,6 +30,8 @@ provider:
         - "dynamodb:ListTables"
       Resource: "*"
   environment:
+    BACKUP_REMOVAL_ENABLED: ${self:custom.backupRemovalEnabled}
+    BACKUP_RETENTION_DAYS: ${self:custom.backupRetentionDays}
     TABLE_REGEX: ${self:custom.tableRegex}
     TABLE_FILE: ${self:custom.tableFile}
     TABLE_NAME: ${self:custom.tableName}
