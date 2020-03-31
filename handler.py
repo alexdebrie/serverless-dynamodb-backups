@@ -51,13 +51,20 @@ def create_backup(table):
     )
 
 def remove_stale_backups(tables):
-    paginator = CLIENT.get_paginator('list_backups')
+    
     upper_bound = datetime.now() - timedelta(days=int(os.environ.get('BACKUP_RETENTION_DAYS')))
-
+    
     print("Removing backups before the following date: {date}".format(date=upper_bound))
-
-    for page in paginator.paginate(TimeRangeUpperBound=upper_bound):
-        for table in page['BackupSummaries']:
+    
+    if CLIENT.can_paginate('list_backups'):
+        paginator = CLIENT.get_paginator('list_backups')
+        for page in paginator.paginate(TimeRangeUpperBound=upper_bound):
+            for table in page['BackupSummaries']:
+                if table['TableName'] in tables:
+                    CLIENT.delete_backup(BackupArn=table['BackupArn'])
+    else:
+        backup = CLIENT.list_backups(TimeRangeUpperBound=upper_bound)
+        for table in backup['BackupSummaries']:
             if table['TableName'] in tables:
                 CLIENT.delete_backup(BackupArn=table['BackupArn'])
 
