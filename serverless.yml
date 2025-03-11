@@ -11,7 +11,7 @@ custom:
 
 provider:
   name: aws
-  runtime: python3.6
+  runtime: python3.13
   timeout: 30
   memorySize: 128
   iamRoleStatements:
